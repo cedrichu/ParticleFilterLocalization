@@ -167,23 +167,24 @@ void addMotion(Particles* particles, Vector3d motion)
     }
 }
 
-void updateWeights(MatrixXd& samples, VectorXd& weights, MatrixXd& map_mat, VectorXd& laser, bool& is_resample)
+void updateWeights(Particles* particles, MapData* map_data, VectorXd& laser, bool& is_resample)
 {
+
     int valid_num = 0;
     is_resample = 0;
     for(int i = 0; i < num; i++){
-        if ((samples(i,0) < 0) || (samples(i,0) >= 800) || (samples(i,1) < 0) || (samples(i,1) >= 800))
-            weights(i) = 0;
-        else if(map_mat(samples(i, 0), samples(i, 1)) != 1)
-            weights(i) = 0;
-        else if ( weights(i) < 0.01/num)
-            weights(i) = 0;
+        if ((particles->samples(i,0) < 0) || (particles->samples(i,0) >= 800) || (particles->samples(i,1) < 0) || (particles->samples(i,1) >= 800))
+            particles->weights(i) = 0;
+        else if(map_data->map_mat(particles->samples(i, 0), particles->samples(i, 1)) != 1)
+            particles->weights(i) = 0;
+        else if ( particles->weights(i) < 0.01/num)
+            particles->weights(i) = 0;
         else
             valid_num += 1;
     }
     
 
-    weights = weights;///(double(valid_num)); //possible NAN
+    particles->weights = particles->weights;///(double(valid_num)); //possible NAN
     if (valid_num < 0.95*num)
         is_resample = 1;
 
@@ -195,13 +196,13 @@ void updateWeights(MatrixXd& samples, VectorXd& weights, MatrixXd& map_mat, Vect
     double rad;
 
     for(int i = 0; i < num; i++){
-        if(weights(i) != 0){
+        if(particles->weights(i) != 0){
             l_data = MatrixXd::Zero(laser_num,2);
             rad = -M_PI/2 + M_PI/360;
             for(int j = 0; j < laser_num; j++)
             {
-                l_data(j,0) = laser(j*ds_rate)/10 * cos(rad + samples(i,2)) +samples(i,0);//laser's index??
-                l_data(j,1) = laser(j*ds_rate)/10 * sin(rad + samples(i,2)) +samples(i,1);
+                l_data(j,0) = laser(j*ds_rate)/10 * cos(rad + particles->samples(i,2)) + particles->samples(i,0);//laser's index??
+                l_data(j,1) = laser(j*ds_rate)/10 * sin(rad + particles->samples(i,2)) + particles->samples(i,1);
                 rad += (M_PI/180 * ds_rate);
             }
 
@@ -209,15 +210,15 @@ void updateWeights(MatrixXd& samples, VectorXd& weights, MatrixXd& map_mat, Vect
             count_match = 0;
             for(int k = 0; k < laser_num; k++)
                 if((l_data(k,0) >= 0) && (l_data(k,0)< 800) && (l_data(k,1) >= 0) && (l_data(k,1) < 800))
-                    if(map_mat(l_data(k,0), l_data(k,1)) == 0 )//need better function()
+                    if(map_data->map_mat(l_data(k,0), l_data(k,1)) == 0 )//need better function()
                         count_match = count_match + 1;
 
-            weights(i) = weights(i) * count_match;
+            particles->weights(i) = particles->weights(i) * count_match;
         }          
     }
        
-    int sum_w = weights.sum();
-    weights = weights/(double(sum_w));
+    int sum_w = particles->weights.sum();
+    particles->weights = particles->weights/(double(sum_w));
 }
 
 
@@ -304,7 +305,7 @@ int main()
             getLocalOdom(ele, last_odom, motion);
             getLaserData(ele, laser);
             addMotion(particles, motion);
-            updateWeights(samples, weights, map_mat,laser, is_resample);
+            updateWeights(particles, map_data,laser, is_resample);
             reSample(samples,weights, map_mat, sigmas, is_resample, time_idx);
         }
         time_idx += 1;
