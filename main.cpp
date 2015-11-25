@@ -149,8 +149,10 @@ void getInitSamples(MatrixXd& samples, vector<Vector2d>& list ) {
         samples(i,2) = seed_r;
     }
 } 
-void addMotion(MatrixXd& samples, MatrixXd& sigmas, Vector3d motion)
+void addMotion(Particles* particles, Vector3d motion)
 {
+    MatrixXd samples = particles->samples; 
+    MatrixXd sigmas =  particles->sigmas;
     for(int i = 0; i < num; i++)
     {
         double d_x = motion(0)*cos(samples(i,2)) - motion(1)*sin(samples(i,2)); 
@@ -302,7 +304,7 @@ int main()
         if (ele[0] == "L") {
             getLocalOdom(ele, last_odom, motion);
             getLaserData(ele, laser);
-            addMotion(samples, sigmas, motion);
+            addMotion(particles, motion);
             updateWeights(samples, weights, map_mat,laser, is_resample);
             reSample(samples,weights, map_mat, sigmas, is_resample, time_idx);
         }
