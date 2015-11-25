@@ -151,20 +151,19 @@ void getInitSamples(MatrixXd& samples, vector<Vector2d>& list ) {
 } 
 void addMotion(Particles* particles, Vector3d motion)
 {
-    MatrixXd samples = particles->samples; 
-    MatrixXd sigmas =  particles->sigmas;
+
     for(int i = 0; i < num; i++)
     {
-        double d_x = motion(0)*cos(samples(i,2)) - motion(1)*sin(samples(i,2)); 
-        double d_y = motion(0)*sin(samples(i,2)) + motion(1)*cos(samples(i,2));
-        samples(i,0) = samples(i,0) + d_x;
-        samples(i,1) = samples(i,1) + d_y;
-        samples(i,2) = samples(i,2) + motion(2);
+        double d_x = motion(0)*cos(particles->samples(i,2)) - motion(1)*sin(particles->samples(i,2)); 
+        double d_y = motion(0)*sin(particles->samples(i,2)) + motion(1)*cos(particles->samples(i,2));
+        particles->samples(i,0) = particles->samples(i,0) + d_x;
+        particles->samples(i,1) = particles->samples(i,1) + d_y;
+        particles->samples(i,2) = particles->samples(i,2) + motion(2);
 
         double ratio = sqrt(motion(0)*motion(0) + motion(1)*motion(1));
 
-        sigmas(i, 0) = sigmas(i,0) + ratio*sig_uv;
-        sigmas(i, 1) = sigmas(i,1) + ratio*sig_r;
+        particles->sigmas(i, 0) = particles->sigmas(i,0) + ratio*sig_uv;
+        particles->sigmas(i, 1) = particles->sigmas(i,1) + ratio*sig_r;
     }
 }
 
