@@ -195,8 +195,6 @@ void updateWeights(Particles* particles, MapData* map_data, VectorXd& laser, boo
             particles->weights(i) = 0.0;
         } else if (map_data->map_mat((int)particles->samples(i, 0), (int)particles->samples(i, 1)) != 1.0) {
             particles->weights(i) = 0.0;
-        //} else if ( particles->weights(i) < 0.000001/num) {
-        //    particles->weights(i) = 0.0;
         } else {
             valid_num += 1;
         }
@@ -227,7 +225,6 @@ void updateWeights(Particles* particles, MapData* map_data, VectorXd& laser, boo
             particles->weights(i) = exp(-0.5*loss/pow(25, 2));
         }          
     }
-
     
     cv::Mat laser_plot = cv::Mat::zeros(500, 500, CV_8UC1);
     for (int j = 0; j < 180; ++j) {
@@ -355,7 +352,7 @@ int main()
     *map_data = {map_mat, map_list};
 
     cv::VideoWriter output;
-    output.open ( "outputVideo.avi", CV_FOURCC('M','P','4','2'), 30, cv::Size (800,800), true );
+    output.open ( "outputVideo.avi", CV_FOURCC('M','J','P','G'), 20, cv::Size (800,800), true );
    
     output_img = map_img.clone();
     drawParticles(particles, output_img);
@@ -379,17 +376,16 @@ int main()
 
             output_img = map_img.clone();
             drawParticles(particles, output_img);
+            cv::Mat output_video;
+            cv::Mat output_video_temp[]={output_img, output_img, output_img};
+            cv::merge(output_video_temp, 3, output_video);
+            output.write(output_video);
             imshow("map", output_img);
             
             output.write ( output_img );
             
             if(cv::waitKey(50) >= 0) break;
 
-        }
-        else if (ele[0] == "O")
-        {
-            //getLocalOdom(ele, last_odom, motion);
-            //addMotion(particles, motion);
         }
         time_idx += 1;
     }
