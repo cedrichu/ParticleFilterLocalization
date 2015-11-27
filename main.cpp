@@ -12,10 +12,10 @@ using namespace Eigen;
 #define MAP_x 800
 #define MAP_y 800
 
-int num = 500;
+int num = 50000;
 
-double sig_uv = 0.2;
-double sig_r = 0.1;
+double sig_uv = 0.1;
+double sig_r = 0.05;
 
 typedef struct {
     MatrixXd map_mat;
@@ -26,7 +26,10 @@ typedef struct {
     MatrixXd samples;
     MatrixXd sigmas;
     VectorXd weights;
+    MatrixXd last_weights;
 } Particles;
+
+double getLaserScore(int idx, int jdx, double dist, MapData* map_data);
 
 void split_map(const string& s, char c, MatrixXd& map, const int& idx) 
 {
@@ -100,15 +103,14 @@ void setMapImg(MatrixXd& map_mat, cv::Mat& map_img) {
 }
 void getLocalOdom(vector<string>& ele, Vector3d& last_odom, Vector3d& motion) {
     Vector3d odom;
+    for (int i=0; i<3; ++i){
+        odom(i) = stod(ele[i+1]);
+    }
     if (last_odom(2) == 999.0) {
         for (int i=0; i<3; ++i){
             motion(i) = 0.0;
         }
     } else {
-
-        for (int i=0; i<3; ++i){
-            odom(i) = stod(ele[i+1]);
-        }
         //get motion
         double d_x = odom(0) - last_odom(0);
         double d_y = odom(1) - last_odom(1);
@@ -159,7 +161,6 @@ void addMotion(Particles* particles, Vector3d motion)
         particles->samples(i,1) = particles->samples(i,1) + d_y;
         particles->samples(i,2) = particles->samples(i,2) + motion(2);
 
-        //double ratio = sqrt(motion(0)*motion(0) + motion(1)*motion(1));
         double ratio = 1.0;
 
         particles->sigmas(i, 0) = particles->sigmas(i,0) + ratio*sig_uv;
@@ -171,24 +172,22 @@ void updateWeights(Particles* particles, MapData* map_data, VectorXd& laser, boo
 
     int valid_num = 0;
     for(int i = 0; i < num; i++){
-        if ((particles->samples(i,0) < 0) || (particles->samples(i,0) >= 800) || (particles->samples(i,1) < 0) || (particles->samples(i,1) >= 800))
-            particles->weights(i) = 0;
-        else if (map_data->map_mat((int)particles->samples(i, 0), (int)particles->samples(i, 1)) != 1.0)
-            particles->weights(i) = 0;
-        else if ( particles->weights(i) < 0.01/num)
-            particles->weights(i) = 0;
-        else
+        if ((particles->samples(i,0) < 0) || (particles->samples(i,0) >= 800) || (particles->samples(i,1) < 0) || (particles->samples(i,1) >= 800)) {
+            particles->weights(i) = 0.0;
+        } else if (map_data->map_mat((int)particles->samples(i, 0), (int)particles->samples(i, 1)) != 1.0) {
+            particles->weights(i) = 0.0;
+        } else if ( particles->weights(i) < 0.01/num) {
+            particles->weights(i) = 0.0;
+        } else {
             valid_num += 1;
+        }
     }
-
-
-    //particles->weights = particles->weights/(double(valid_num)); //possible NAN
-    //cout<<"valid_num"<<valid_num<<endl;
+    
     if (valid_num < 0.95*num)
         is_resample = true;
 
 
-    int ds_rate = 10;
+    int ds_rate = 1;
     int laser_num = 180/ds_rate;
     int count_match = 0;
     MatrixXd l_data = MatrixXd::Zero(laser_num,2);
@@ -206,20 +205,60 @@ void updateWeights(Particles* particles, MapData* map_data, VectorXd& laser, boo
             }
 
             count_match = 0;
-            for(int k = 0; k < laser_num; k++)
-                if((l_data(k,0) >= 0) && (l_data(k,0)< 800) && (l_data(k,1) >= 0) && (l_data(k,1) < 800))
-                    if(map_data->map_mat((int)l_data(k,0), (int)l_data(k,1)) == 0 )//need better function()
+            for(int k = 0; k < laser_num; k++) {
+                //*
+                if((l_data(k,0) >= 0) && (l_data(k,0)< 800) && (l_data(k,1) >= 0) && (l_data(k,1) < 800)) {
+                    if(map_data->map_mat((int)l_data(k,0), (int)l_data(k,1)) == 0.0 ) {
                         count_match = count_match + 1;
+                        //count_match = count_match + laser(k*ds_rate);
+                    }
+                }
+                // */
+                //count_match += getLaserScore((int)l_data(k, 0), (int)l_data(k, 1), laser(k*ds_rate), map_data);
+            }
 
             particles->weights(i) = particles->weights(i) * count_match;
+            //particles->weights(i) = particles->weights(i) + count_match;
+            //particles->weights(i) = particles->weights(i) * (1 + count_match);
 
-            //cout<< count_match << " ";
         }          
     }
 
+    
+    cv::Mat laser_plot = cv::Mat::zeros(500, 500, CV_8UC1);
+    for (int j = 0; j < 180; ++j) {
+        int idx = laser(j)/10.0 * cos(((double)j)*M_PI/180.0 - M_PI/2.0) + 250;
+        int jdx = laser(j)/10.0 * sin(((double)j)*M_PI/180.0 - M_PI/2.0) + 250;
+        if (idx >= 0 && idx < 500 && jdx >=0 && jdx < 500) {
+            laser_plot.data[idx*500 + jdx] = 255;
+        }
+    }
+    imshow("laser", laser_plot);
+    cv::waitKey(1);
 
-    int sum_w = particles->weights.sum();
-    particles->weights = particles->weights/(double(sum_w));
+    double sum_w = particles->weights.sum();
+    particles->weights = particles->weights/(sum_w);
+    particles->last_weights = particles->weights;
+
+}
+
+double getLaserScore(int idx, int jdx, double dist, MapData* map_data) {
+    double score = 0;
+    int rg = 1;
+    for (int a = -rg; a <= rg; ++a) {
+        for (int b = -rg; b <= rg; ++b) {
+            int i = idx + a;
+            int j = jdx + b;
+            if (i >= 0 && i < 800 && j >= 0 && j < 800) {
+                if (map_data->map_mat(i, j) == 0.0) {
+                    //score++;
+                    return 1.0;
+                }
+            }
+        }
+    }
+    //return min(score, 3.0);
+    return 0.0;
 }
 
 void reSample(Particles* particles, MapData* map_data, bool& is_resample, int time_idx)
@@ -227,14 +266,15 @@ void reSample(Particles* particles, MapData* map_data, bool& is_resample, int ti
     if(is_resample == false)
         return;
 
-    //int ratio = 1 + 10/(time_idx+10);
-    int ratio = 1;
+    double ratio;
+    ratio = 1 + 1000/(double(time_idx*500)+1000);
+    int num_w =  num/ratio;
+    
     default_random_engine generator;
     VectorXd weights_num;
-    weights_num = particles->weights * num/ratio;
+    weights_num = particles->weights * num_w;
 
-    //vector<double> weights_vector(weights_num.data(), weights_num.data() + weights_num.size());
-    //discrete_distribution<int> discrete (weights_vector.begin(), weights_vector.end());
+
     MatrixXd previous_samples = MatrixXd::Zero(num,3);
     previous_samples = particles->samples;
 
@@ -242,50 +282,47 @@ void reSample(Particles* particles, MapData* map_data, bool& is_resample, int ti
 
     double cdf = 0;
     int count_s = 0;
-    for (int i = 0; i < num/ratio; i++){
-        //number = discrete(generator);
-        cdf = cdf + weights_num(i)/ratio;
-        while (count_s < (int)(cdf) && count_s < num/ratio) {
-            //cout<< count_s<<" "<<cdf<<endl;
+    for (int i = 0; i < num_w; i++){
+        cdf = cdf + weights_num(i);
+        while (count_s < (int)(cdf) && count_s < num_w) {
             double n_x = normal(generator);
             double n_y = normal(generator);
             double n_theta = normal(generator);
             Vector3d temp_sample;
             temp_sample(0) = (int)round(previous_samples(i,0) + particles->sigmas(i,0) * n_x); 
             temp_sample(1) = (int)round(previous_samples(i,1) + particles->sigmas(i,0) * n_y); 
-            temp_sample(2) = (int)round(previous_samples(i,2) + particles->sigmas(i,1) * n_theta); 
+            temp_sample(2) = (int)round(previous_samples(i,2));// + particles->sigmas(i,1) * n_theta); 
 
-            //cout << temp_sample(0) << " " << temp_sample(1) << " " << particles->sigmas(i,0) << endl;
 
             if((temp_sample(0) >= 0) && (temp_sample(0)< 800) && (temp_sample(1) >= 0) && (temp_sample(1) < 800)) {
-                if(map_data->map_mat((int)temp_sample(0),(int)temp_sample(1)) == 1) {
+                if(map_data->map_mat((int)temp_sample(0),(int)temp_sample(1)) == 1.0) {
                     particles->samples(count_s, 0) = temp_sample(0);
                     particles->samples(count_s, 1) = temp_sample(1);
                     particles->samples(count_s, 2) = temp_sample(2);
                     count_s = count_s + 1;
                 }
             }
-         }
+        }
     }
-    for (int i = num/ratio; i < num; i++) {
+    for (int i = num_w; i < num; i++) {
         int seed = rand()%(map_data->map_list.size());
         particles->samples(i,0) = map_data->map_list[seed](0);
         particles->samples(i,1) = map_data->map_list[seed](1);
         double seed_r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) * 2 * M_PI;
         particles->samples(i,2) = seed_r;
     }
+    particles->last_weights = particles->weights;
     particles->weights = VectorXd::Constant(num, 1.0);
     particles->sigmas = MatrixXd::Zero(num,2);
     is_resample = false;
 }
 
 
-void drawParticles(Particles* particles, cv::Mat& output_img)
-{
-    for(int i = 0; i < num; i++)
-    {
-        if(particles->weights(i) != 0)
+void drawParticles(Particles* particles, cv::Mat& output_img) {
+    for(int i = 0; i < num; i++) {
+        if(particles->last_weights(i) != 0) {
             output_img.data[int(particles->samples(i,0))*800 + int(particles->samples(i,1))] = 127;
+        }
     }
 }
 
@@ -299,7 +336,13 @@ int main()
     cv::Mat output_img = cv::Mat::zeros(800, 800, CV_8UC1);  
     ifstream map_file("../data/map/wean.dat");
     parse_map(&map_file, map_mat);
+    
     ifstream log_file("../data/log/robotdata1.log");
+    //ifstream log_file("../data/log/ascii-robotdata2.log");
+    //ifstream log_file("../data/log/ascii-robotdata3.log");
+    //ifstream log_file("../data/log/ascii-robotdata4.log");
+    //ifstream log_file("../data/log/ascii-robotdata5.log");
+    
     string line;
 
     Vector3d motion;
@@ -309,19 +352,19 @@ int main()
     vector<Vector2d> map_list;
     MatrixXd sigmas = MatrixXd::Zero(num,2);
     VectorXd weights = VectorXd::Constant(num, 1.0);
+    VectorXd last_weights = VectorXd::Constant(num, 1.0);
     bool is_resample = false;
     int time_idx = 0;
 
 
 
-    //weights = weights/(double(num));
 
     getInitMapList(map_list, map_mat); 
     getInitSamples(samples, map_list);
     setMapImg(map_mat, map_img);
 
     Particles* particles = new Particles;
-    *particles = {samples,sigmas, weights};
+    *particles = {samples,sigmas, weights, last_weights};
     MapData* map_data = new MapData;
     *map_data = {map_mat, map_list};
 
@@ -339,17 +382,24 @@ int main()
             addMotion(particles, motion);
             updateWeights(particles, map_data,laser, is_resample);
 
+            //if (time_idx%10 == 0) {
+              //  is_resample = true;
+            //}
+
             reSample(particles, map_data, is_resample, time_idx);
-          
-            //if(time_idx%100 == 0){
+
             output_img = map_img.clone();
             drawParticles(particles, output_img);
             imshow("map", output_img);
             if(cv::waitKey(30) >= 0) break;
-            //}
+
+        }
+        else if (ele[0] == "O")
+        {
+            //getLocalOdom(ele, last_odom, motion);
+            //addMotion(particles, motion);
         }
         time_idx += 1;
-        //cout << "time: " << time_idx << endl;
     }
 
     return 0;
